@@ -880,13 +880,16 @@ def benchmark_one_step(sess,
     image_producer.notify_image_consumption()
   train_time = time.time() - start_time
   step_train_times.append(train_time)
+  # if (step == 0) or (step == 1):
+    # input(f'Step {step} paused')
   if (show_images_per_sec and step >= 0 and
       (step == 0 or (step + 1) % params.display_every == 0)):
-    speed_mean, speed_uncertainty, speed_jitter = get_perf_timing(
-        batch_size, step_train_times, params.display_perf_ewma)
+    step_train_times_iter = step_train_times[-params.display_every:]
+    speed_mean, speed_uncertainty, speed_jitter, speed_mean_iter = get_perf_timing(
+        batch_size, step_train_times, step_train_times_iter, params.display_perf_ewma)
     log_str = '%i\t%s\t%.*f' % (
         step + 1,
-        get_perf_timing_str(speed_mean, speed_uncertainty, speed_jitter),
+        get_perf_timing_str(speed_mean, speed_uncertainty, speed_jitter, speed_mean_iter),
         LOSS_AND_ACCURACY_DIGITS_TO_SHOW, lossval)
     if 'top_1_accuracy' in results:
       log_str += '\t%.*f\t%.*f' % (
@@ -933,28 +936,42 @@ def benchmark_one_step(sess,
   return (summary_str, lossval)
 
 
-def get_perf_timing_str(speed_mean, speed_uncertainty, speed_jitter, scale=1):
+def get_perf_timing_str(speed_mean, speed_uncertainty, speed_jitter, speed_mean_iter, scale=1):
   if scale == 1:
     # TODO(laigd): rename 'images' to maybe 'inputs', same below.
-    return ('images/sec: %.1f +/- %.1f (jitter = %.1f)' %
-            (speed_mean, speed_uncertainty, speed_jitter))
+    return ('images/sec: \t%.1f \t+/- %.1f (jitter = %.1f) \timages/sec(per each step): \t %.1f \t' %
+            (speed_mean, speed_uncertainty, speed_jitter, speed_mean_iter))
   else:
     return 'images/sec: %.1f' % speed_mean
 
 
-def get_perf_timing(batch_size, step_train_times, ewma_alpha=None, scale=1):
+def get_perf_timing(batch_size, step_train_times, step_train_times_iter, ewma_alpha=None, scale=1):
   """Calculate benchmark processing speed."""
   times = np.array(step_train_times)
   speeds = batch_size / times
+
+  # TSKIM
+  times_iter = np.array(step_train_times_iter)
+  speeds_iter = batch_size / times_iter
+
   if ewma_alpha:
     weights = np.logspace(len(times)-1, 0, len(times), base=1-ewma_alpha)
     time_mean = np.average(times, weights=weights)
+
+    # TSKIM
+    weights_iter = np.logspace(len(times_iter)-1, 0, len(times_iter), base=1-ewma_alph)
+    time_mean_iter = np.array(times_iter, weights=weights)
+
   else:
     time_mean = np.mean(times)
+
+    # TSKIM
+    time_mean_iter = np.mean(times_iter)
   speed_mean = scale * batch_size / time_mean
   speed_uncertainty = np.std(speeds) / np.sqrt(float(len(speeds)))
   speed_jitter = 1.4826 * np.median(np.abs(speeds - np.median(speeds)))
-  return speed_mean, speed_uncertainty, speed_jitter
+  speed_mean_iter = scale * batch_size / time_mean_iter
+  return speed_mean, speed_uncertainty, speed_jitter, speed_mean_iter
 
 
 def load_checkpoint(saver, sess, ckpt_dir):
